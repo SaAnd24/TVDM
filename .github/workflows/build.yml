@@ -1,0 +1,64 @@
+name: Build APK desde ZIP
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Buscar y descomprimir el ZIP
+        run: |
+          ZIP=$(find . -maxdepth 2 -name "*.zip" -not -path "./.git/*" | head -n 1)
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: no hay ningún .zip en el repositorio"
+            exit 1
+          fi
+          echo "ZIP encontrado: $ZIP"
+          mkdir -p _proyecto
+          unzip -q "$ZIP" -d _proyecto
+          SETTINGS=$(find _proyecto -name "settings.gradle.kts" | head -n 1)
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: el ZIP no contiene settings.gradle.kts"
+            exit 1
+          fi
+          DIR=$(dirname "$SETTINGS")
+          echo "Proyecto en: $DIR"
+          echo "PROJECT_DIR=$DIR" >> "$GITHUB_ENV"
+
+      - name: Validar escenas
+        run: |
+          cd "$PROJECT_DIR"
+          if [ -f scripts/validate_scenes.py ]; then
+            python3 scripts/validate_scenes.py
+          else
+            echo "Sin validador, se omite"
+          fi
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Instalar Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Compilar APK debug
+        run: |
+          cd "$PROJECT_DIR"
+          gradle assembleDebug --stacktrace
+
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TuVersionDeMi-debug-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
